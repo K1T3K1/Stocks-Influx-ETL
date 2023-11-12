@@ -1,0 +1,4 @@
+influxdb-client==1.38.0
+aiohttp==3.8.4
+finnhub-python==2.4.19
+pandas==2.1.3

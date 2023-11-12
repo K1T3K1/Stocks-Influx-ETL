@@ -1,0 +1,16 @@
+services:
+  parser:
+    image: etl_microservice
+    build:
+      context: .
+      dockerfile: ./src/Dockerfile
+    hostname: etl_microservice
+    container_name: etl_microservice
+    network_mode: host
+    restart: always
+    environment:
+      - INFLUX_URL=$INFLUX_URL
+      - INFLUX_TOKEN=$INFLUX_TOKEN
+      - INFLUX_BUCKET=$INFLUX_BUCKET
+      - INFLUX_ORG=$INFLUX_ORG
+      - FINNHUB_TOKEN=$FINNHUB_TOKEN
