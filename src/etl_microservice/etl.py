@@ -18,7 +18,7 @@ class ETL:
     is_historical_filled: bool = False
     _etl_task: asyncio.Task
     target_market: str
-    etl_delay: float = 60
+    etl_delay: float = 240
     uploader: InfluxUploader
     client: StocksClient
 
