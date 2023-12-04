@@ -6,7 +6,7 @@ from typing import AsyncGenerator
 from aiohttp.web import Application
 
 from .database import InfluxUploader
-from .etl import ETL
+from .etl import ETL, YFinanceClient
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +25,36 @@ async def make_app() -> Application:
         raise ValueError("Influx Token can't be missing")
     app["InfluxUploader"] = await InfluxUploader.get_uploader(url, token, org, bucket)
 
-    api_token = os.getenv("FINNHUB_TOKEN")
-    if not api_token:
-        raise ValueError("Finnhub Token can't be missing")
-    app["ETLWorker"] = await ETL.start_etl(api_token, app["InfluxUploader"])
+    api_secrets = get_api_provider()
+    stocks_client = YFinanceClient
+    app["ETLWorker"] = await ETL.start_etl(api_secrets, app["InfluxUploader"], stocks_client)
 
     return app
+
+
+def get_api_provider() -> dict[str, str]:
+    dict_builder = lambda key, secret, endpoint: {"key": key, "secret": secret, "endpoint": endpoint}
+    provider = os.getenv("API_PROVIDER")
+    match provider:
+        case "ALPACA":
+            key = os.getenv("ALPACA_KEY")
+            secret = os.getenv("ALPACA_SECRET")
+            endpoint = os.getenv("ALPACA_ENDPOINT")
+            api_dict = dict_builder(key, secret, endpoint)
+            for k, v in api_dict.items():
+                if v is None:
+                    raise ValueError(f"Missing value for ENV: {k}")
+            return api_dict
+        case "FINNHUB":
+            key = os.getenv("FINNHUB_TOKEN")
+            if key is None:
+                raise ValueError(f"Missing value for ENV: FINNHUB_TOKEN")
+            return dict_builder(key, None, None)
+        case "YAHOO":
+            return dict_builder(None, None, None)
+        case _:
+            logger.error(f"Provider not recognized. Got: {provider}")
+            raise ValueError("Provider must be correct in order to proceed")
 
 
 async def database_context(app: Application) -> AsyncGenerator[None, None]:
