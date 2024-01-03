@@ -16,6 +16,7 @@ logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 listener.start()
 
+
 def main() -> None:
     app = make_app()
     run_app(app)

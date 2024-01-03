@@ -33,7 +33,7 @@ class InfluxUploader:
         return self
 
     async def write_point(self, data_points: list[Point]) -> None:
-        #logger.info("Adding point to queue")
+        # logger.info("Adding point to queue")
         for point in data_points:
             await self._batching_queue.put(point)
 
@@ -66,7 +66,7 @@ class InfluxUploader:
             data_point = await self._batching_queue.get()
             batch.append(data_point)
             self._batching_queue.task_done()
-        await self._write_api.write(self._bucket, record=batch, write_precision='s')
+        await self._write_api.write(self._bucket, record=batch, write_precision="s")
 
     async def query_data(
         self, start: str, end: Optional[str] = None, symbol: Optional[str] = None
@@ -82,23 +82,23 @@ class InfluxUploader:
 
     def _get_query(self, start: str, end: Optional[str] = None, symbol: Optional[str] = None) -> str:
         if end and not symbol:
-            return f"""from {self._bucket}
+            return f"""from (bucket: "{self._bucket}")
                     |> range(start: -{start}, end: -{end})
                     |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
                     """
         if not end and symbol:
-            return f"""from {self._bucket}
+            return f"""from (bucket: "{self._bucket}")
                     |> range(start: -{start})
                     |> filter(fn: (r) => r._measurement == "CandleData" and r.Symbol == "{symbol}")
                     |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
                     """
         if end and symbol:
-            return f"""from {self._bucket}
+            return f"""from (bucket: "{self._bucket}")
                     |> range(start: -{start}, end: -{end})
                     |> filter(fn: (r) => r._measurement == "CandleData" and r.Symbol == "{symbol}")
                     |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
                     """
-        return f"""from {self._bucket}
+        return f"""from (bucket: "{self._bucket}")
                 |> range(start: -{start})
                 |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
                 """

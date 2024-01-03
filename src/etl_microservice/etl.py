@@ -10,8 +10,12 @@ from influxdb_client import Point
 from yfinance import Ticker
 from .database import InfluxUploader
 from abc import ABC, abstractmethod
+import aiohttp
 import finnhub
+import json
+
 logger = logging.getLogger(__name__)
+
 
 class ETL:
     executor: ThreadPoolExecutor
@@ -23,21 +27,28 @@ class ETL:
     client: StocksClient
 
     @classmethod
-    async def start_etl(cls, api_secrets: dict[str, str], influx: InfluxUploader, client: YFinanceClient, target_market: str = "US") -> ETL:
+    async def start_etl(
+        cls,
+        api_secrets: dict[str, str],
+        influx: InfluxUploader,
+        client: YFinanceClient,
+        internal_token: str,
+        target_market: str = "US",
+    ) -> ETL:
         self = cls()
         logger.info("Starting ETL...")
         self.uploader = influx
         self.target_market = target_market
         self.executor = ThreadPoolExecutor(1)
-        self.client = client(self.executor, self.uploader)
+        self.client = client(self.executor, self.uploader, internal_token)
         await self.client.get_available_companies()
         self.is_historical_filled = await self._is_historical_filled()
         if self.is_historical_filled is not True:
             logger.info("Need to fill historical. Gathering...")
             await self.gather_historical()
+        await self.client.fill_companies_db()
         self._etl_task = asyncio.create_task(self._run_etl())
         return self
-
 
     async def _is_historical_filled(self) -> bool:
         logger.info("Checking if historical data exists")
@@ -62,6 +73,7 @@ class ETL:
                 logger.error(f"Failed to get single day Candles. Reason: {e}")
                 await asyncio.sleep(self.etl_delay)
 
+
 class StocksClient:
     @abstractmethod
     def prepare_point(self, candle_data, symbol: str) -> Optional[list[Point]]:
@@ -70,10 +82,15 @@ class StocksClient:
     @abstractmethod
     async def get_candles(self, days_delta: str | int, resolution: str) -> None:
         pass
+
+
 class YFinanceClient(StocksClient):
-    def __init__(self, executor: ThreadPoolExecutor, uploader: InfluxUploader, api_key: str = None):
+    def __init__(
+        self, executor: ThreadPoolExecutor, uploader: InfluxUploader, internal_token: str, api_key: str = None
+    ):
         self.executor = executor
         self.uploader = uploader
+        self.internal_token = internal_token
         self.companies = {}
 
     def prepare_point(self, candle_data: pd.Dataframe, symbol: str) -> Optional[list[Point]]:
@@ -92,7 +109,7 @@ class YFinanceClient(StocksClient):
                 )
             return result
         return None
-    
+
     async def get_candles(self, delta: int | str, resolution: str) -> None:
         loop = asyncio.get_running_loop()
         if isinstance(delta, int):
@@ -109,7 +126,7 @@ class YFinanceClient(StocksClient):
             if prepared_p:
                 await self.uploader.write_point(prepared_p)
 
-    async def get_available_companies(self) -> dict[str, str]:
+    async def get_available_companies(self) -> None:
         self.companies = {
             "AAPL": "Apple Inc",
             "MSFT": "Microsoft Corp",
@@ -133,6 +150,20 @@ class YFinanceClient(StocksClient):
             "AMGN": "Amgen Inc",
             "QCOM": "QUALCOMM Inc",
         }
+
+    async def fill_companies_db(self) -> None:
+        companies = json.dumps({"companies": [{"name": name, "symbol": symbol} for symbol, name in self.companies.items()]})
+        headers = {"Authorization": self.internal_token, "accept": "application/json", "Content-Type": "application/json"}
+        logger.info(f" Companies: {companies}")
+        async with aiohttp.ClientSession() as client:
+            async with client.post(
+                "https://api.shield-dev51.quest/append_companies", data=companies, headers=headers
+            ) as resp:
+                if resp.status == 201 or resp.status == 500:
+                    return
+                else:
+                    raise ValueError(f"Failed to post to append_companies. Return code: {resp.status} {await resp.text()}")
+
 
 class FinnhubClient:
     client: finnhub.Client
@@ -158,11 +189,11 @@ class FinnhubClient:
                     .field("LowPrice", float(candle_data["l"][i]))
                     .field("OpenPrice", float(candle_data["o"][i]))
                     .field("Volume", candle_data["v"][i])
-                    .time(candle_data["t"][i], write_precision='s')
+                    .time(candle_data["t"][i], write_precision="s")
                 )
             return result
         return None
-    
+
     async def get_candles(self, delta: int, resolution: str) -> None:
         start = int((datetime.utcnow() - timedelta(days=delta)).timestamp())
         end = int(datetime.utcnow().timestamp())

@@ -20,21 +20,24 @@ async def make_app() -> Application:
     token = os.getenv("INFLUX_TOKEN")
     org = os.getenv("INFLUX_ORG", "team")
     bucket = os.getenv("INFLUX_BUCKET", "candles")
-    logger.error(token)
+    internal_token = os.getenv("INTERNAL_TOKEN")
+
     if not token:
         raise ValueError("Influx Token can't be missing")
+    if not internal_token:
+        raise ValueError("Internal Token can't be missing")
     app["InfluxUploader"] = await InfluxUploader.get_uploader(url, token, org, bucket)
 
     api_secrets = get_api_provider()
     stocks_client = YFinanceClient
-    app["ETLWorker"] = await ETL.start_etl(api_secrets, app["InfluxUploader"], stocks_client)
+    app["ETLWorker"] = await ETL.start_etl(api_secrets, app["InfluxUploader"], stocks_client, internal_token)
 
     return app
 
 
 def get_api_provider() -> dict[str, str]:
     dict_builder = lambda key, secret, endpoint: {"key": key, "secret": secret, "endpoint": endpoint}
-    provider = os.getenv("API_PROVIDER")
+    provider = os.getenv("API_PROVIDER", "YAHOO")
     match provider:
         case "ALPACA":
             key = os.getenv("ALPACA_KEY")
